@@ -14,6 +14,9 @@ mod macros;
 
 mod cli;
 
+const DOCKER_ERROR: i32 = 1;
+const USER_ERROR: i32 = 2;
+
 struct Game {
     name: &'static str,
     image: &'static str,
@@ -73,7 +76,7 @@ async fn main() {
     .expect("Setup Docker connection (cannot error currently)");
     // Try connection to fail with a reasonable error:
     if let Err(error) = docker.ping().await {
-        exit!(1, "Unable to connect with Docker: \n {}", error);
+        exit!(DOCKER_ERROR, "Unable to connect with Docker: \n {}", error);
     };
 
     match opt.cmd {
@@ -93,10 +96,23 @@ async fn main() {
                         .iter()
                         .filter(|game| game.name.contains(&*game_name))
                         .collect();
-                    if games.len() == 1 {
-                        Some(games[0])
-                    } else {
-                        None
+                    match games.len() {
+                        1 => Some(games[0]),
+                        0 => exit!(
+                            USER_ERROR,
+                            "Unable to find a matching game for: `{}`",
+                            &*game_name
+                        ),
+                        _ => exit!(
+                            USER_ERROR,
+                            "Unable to find unique matching game for: `{}`, found: {}",
+                            &*game_name,
+                            games
+                                .iter()
+                                .map(|game| "`".to_owned() + game.name + "`")
+                                .intersperse(",".to_owned())
+                                .collect::<String>()
+                        ),
                     }
                 });
                 if let Some(game) = game {
