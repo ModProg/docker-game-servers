@@ -4,6 +4,8 @@ use bollard::container::ListContainersOptions;
 use bollard::models::{ContainerSummaryInner, Port};
 use bollard::{ClientVersion, Docker};
 use clap::Clap;
+use comfy_table::presets::UTF8_FULL;
+use comfy_table::*;
 
 use core::fmt::{self, Debug};
 use std::collections::HashMap;
@@ -230,12 +232,50 @@ async fn main() {
                 }))
                 .await
                 .unwrap();
+            let mut table = Table::new();
+            table
+                .load_preset(UTF8_FULL)
+                .set_content_arrangement(ContentArrangement::Dynamic)
+                .set_header(vec!["Name", "Game", "Tags", "Ports"]);
+
+            if !table.is_tty() {
+                table.set_table_width(80);
+            }
 
             for server in servers {
-                if let Ok(server) = Server::try_from(server.clone()) {
-                    println!("-> {:?}", server);
+                if let Ok(Server {
+                    name,
+                    game: Game {
+                        name: game_name, ..
+                    },
+                    tags,
+                    ports,
+                }) = Server::try_from(server.clone())
+                {
+                    table.add_row(vec![
+                        Cell::new(name),
+                        Cell::new(game_name),
+                        Cell::new(
+                            tags.iter()
+                                .map(|tag| format!(" - {}\n", tag))
+                                .collect::<String>(),
+                        ),
+                        Cell::new(
+                            ports
+                                .iter()
+                                .map(
+                                    |Port {
+                                         typ, public_port, ..
+                                     }| {
+                                        format!(" - {}:{}\n", typ.unwrap(), public_port.unwrap())
+                                    },
+                                )
+                                .collect::<String>(),
+                        ),
+                    ]);
                 }
             }
+            println!("{}", table);
         }
         cli::Command::Games => unreachable!("Already handled in pre-docker match."),
     }
