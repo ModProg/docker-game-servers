@@ -1,10 +1,12 @@
-#![feature(iter_intersperse)]
+#![feature(iter_intersperse, never_type)]
+use anyhow::{anyhow, Error, Result};
 use bollard::container::ListContainersOptions;
-use bollard::image::ListImagesOptions;
+use bollard::models::ContainerSummaryInner;
 use bollard::{ClientVersion, Docker};
 use clap::Clap;
 
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::default::Default;
 
 use crate::cli::{Opt, ServerFilter};
@@ -17,15 +19,68 @@ mod cli;
 const DOCKER_ERROR: i32 = 1;
 const USER_ERROR: i32 = 2;
 
+#[derive(Debug, Clone)]
 struct Game {
     name: &'static str,
     image: &'static str,
 }
 
-const GAMES: &[Game] = &[Game {
-    name: "minecraft",
-    image: "docker.io/itzg/minecraft-server:latest",
-}];
+impl Game {
+    fn find_by_image(image_name: &str) -> Option<&'static Self> {
+        let image_name = if let Some((image_name, _)) = image_name.split_once(':') {
+            image_name
+        } else {
+            image_name
+        };
+        GAMES.iter().find(|Game { image, .. }| *image == image_name)
+    }
+}
+
+#[derive(Debug)]
+struct Server {
+    game: &'static Game,
+    tags: Vec<String>,
+}
+
+impl TryFrom<ContainerSummaryInner> for Server {
+    type Error = Error;
+
+    fn try_from(container: ContainerSummaryInner) -> Result<Self, Self::Error> {
+        match container {
+            ContainerSummaryInner {
+                image: Some(image),
+                names: Some(names),
+                ..
+            } if names.len() == 1 => Ok(Self {
+                game: if let Some(game) = Game::find_by_image(&image) {
+                    game
+                } else {
+                    return Err(anyhow!(
+                        "Container image is not compatible with dgs: `{}`",
+                        image
+                    ));
+                },
+                tags: vec![],
+            }),
+            _ => Err(anyhow!("Container is not compatible with dgs")),
+        }
+    }
+}
+
+const GAMES: &[Game] = &[
+    Game {
+        name: "minecraft",
+        image: "docker.io/itzg/minecraft-server",
+    },
+    Game {
+        name: "factorio",
+        image: "docker.io/factoriotools/factorio",
+    },
+    Game {
+        name: "valheim",
+        image: "docker.io/lloesche/valheim-server",
+    },
+];
 const TIME_OUT: u64 = 5;
 
 #[tokio::main]
@@ -110,7 +165,7 @@ async fn main() {
                             games
                                 .iter()
                                 .map(|game| "`".to_owned() + game.name + "`")
-                                .intersperse(",".to_owned())
+                                .intersperse(", ".to_owned())
                                 .collect::<String>()
                         ),
                     }
@@ -129,9 +184,11 @@ async fn main() {
                 .unwrap();
 
             for server in servers {
-                println!("-> {:?}", server);
+                if let Ok(server) = Server::try_from(server.clone()) {
+                    println!("-> {:?}", server);
+                }
             }
         }
-        cli::Command::Games => unreachable!("Already handled in pre docker match."),
+        cli::Command::Games => unreachable!("Already handled in pre-docker match."),
     }
 }

@@ -1,3 +1,4 @@
+use std::convert::Infallible;
 use std::ops::Deref;
 use std::str::FromStr;
 
@@ -38,7 +39,7 @@ pub struct ServerFilter {
 pub struct LowerCaseString(String);
 
 impl FromStr for LowerCaseString {
-    type Err = String;
+    type Err = !;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(Self(s.to_lowercase()))
