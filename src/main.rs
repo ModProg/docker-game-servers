@@ -1,10 +1,11 @@
 #![feature(iter_intersperse, never_type, map_into_keys_values)]
 use anyhow::{anyhow, Error, Result};
 use bollard::container::ListContainersOptions;
-use bollard::models::ContainerSummaryInner;
+use bollard::models::{ContainerSummaryInner, Port};
 use bollard::{ClientVersion, Docker};
 use clap::Clap;
 
+use core::fmt::{self, Debug};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::default::Default;
@@ -36,11 +37,44 @@ impl Game {
     }
 }
 
-#[derive(Debug)]
 struct Server {
     name: String,
     game: &'static Game,
     tags: Vec<String>,
+    ports: Vec<Port>,
+}
+
+impl fmt::Debug for Server {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            name,
+            game: Game { name: game, .. },
+            tags,
+            ports,
+        } = self;
+        write!(
+            f,
+            "Server {{name: {:?}, game: {:?}, tags: {:?}, ports: {:?}}}",
+            name,
+            game,
+            tags,
+            ports
+                .iter()
+                .filter_map(|port| {
+                    if let Port {
+                        public_port: Some(public_port),
+                        typ: Some(typ),
+                        ..
+                    } = port
+                    {
+                        Some(format!("{}:{}", typ, public_port))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        )
+    }
 }
 
 impl TryFrom<ContainerSummaryInner> for Server {
@@ -52,6 +86,7 @@ impl TryFrom<ContainerSummaryInner> for Server {
                 image: Some(image),
                 names: Some(names),
                 labels: Some(labels),
+                ports: Some(ports),
                 ..
             } if names.len() == 1 => Ok(Self {
                 name: names[0].clone(),
@@ -73,6 +108,7 @@ impl TryFrom<ContainerSummaryInner> for Server {
                         }
                     })
                     .collect(),
+                ports,
             }),
             _ => Err(anyhow!("Container is not compatible with dgs")),
         }
