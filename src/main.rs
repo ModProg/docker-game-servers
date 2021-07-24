@@ -1,7 +1,7 @@
 #![feature(iter_intersperse, never_type, map_into_keys_values)]
 use anyhow::{anyhow, Error, Result};
 use bollard::container::ListContainersOptions;
-use bollard::models::{ContainerSummaryInner, Port};
+use bollard::models::{self, ContainerSummaryInner, PortTypeEnum};
 use bollard::{ClientVersion, Docker};
 use clap::Clap;
 use comfy_table::presets::UTF8_FULL;
@@ -19,6 +19,7 @@ mod macros;
 
 mod cli;
 
+const UTF8_SOLID_INNER_BORDERS: &str = "        │─         ";
 const DOCKER_ERROR: i32 = 1;
 const USER_ERROR: i32 = 2;
 
@@ -36,6 +37,33 @@ impl Game {
             image_name
         };
         GAMES.iter().find(|Game { image, .. }| *image == image_name)
+    }
+}
+
+#[derive(Debug)]
+struct Port {
+    public: i64,
+    private: i64,
+    typ: PortTypeEnum,
+}
+
+impl TryFrom<models::Port> for Port {
+    type Error = Error;
+
+    fn try_from(value: models::Port) -> Result<Self, Self::Error> {
+        match value {
+            models::Port {
+                private_port,
+                public_port: Some(public_port),
+                typ: Some(typ),
+                ..
+            } => Ok(Self {
+                public: public_port,
+                private: private_port,
+                typ,
+            }),
+            port => Err(anyhow!("Incompatible port config: {:?}", port)),
+        }
     }
 }
 
@@ -62,18 +90,14 @@ impl fmt::Debug for Server {
             tags,
             ports
                 .iter()
-                .filter_map(|port| {
-                    if let Port {
-                        public_port: Some(public_port),
-                        typ: Some(typ),
-                        ..
-                    } = port
-                    {
-                        Some(format!("{}:{}", typ, public_port))
-                    } else {
-                        None
-                    }
-                })
+                .map(
+                    |Port {
+                         public,
+                         typ,
+                         private,
+                         ..
+                     }| format!("{}:{}->{}", typ, public, private)
+                )
                 .collect::<Vec<_>>()
         )
     }
@@ -110,7 +134,10 @@ impl TryFrom<ContainerSummaryInner> for Server {
                         }
                     })
                     .collect(),
-                ports,
+                ports: ports
+                    .into_iter()
+                    .filter_map(|port| Port::try_from(port).ok())
+                    .collect(),
             }),
             _ => Err(anyhow!("Container is not compatible with dgs")),
         }
@@ -235,11 +262,16 @@ async fn main() {
             let mut table = Table::new();
             table
                 .load_preset(UTF8_FULL)
+                .apply_modifier(UTF8_SOLID_INNER_BORDERS)
                 .set_content_arrangement(ContentArrangement::Dynamic)
-                .set_header(vec!["Name", "Game", "Tags", "Ports"]);
+                .set_header(
+                    vec!["Name", "Game", "Tags", "Ports"]
+                        .iter()
+                        .map(|s| Cell::new(s).set_alignment(CellAlignment::Center)),
+                );
 
             if !table.is_tty() {
-                table.set_table_width(80);
+                table.set_table_width(60);
             }
 
             for server in servers {
@@ -263,13 +295,14 @@ async fn main() {
                         Cell::new(
                             ports
                                 .iter()
-                                .map(
-                                    |Port {
-                                         typ, public_port, ..
-                                     }| {
-                                        format!(" - {}:{}\n", typ.unwrap(), public_port.unwrap())
-                                    },
-                                )
+                                .map(|port| match port {
+                                    Port {
+                                        typ: PortTypeEnum::TCP,
+                                        public,
+                                        ..
+                                    } => format!(" - {}\n", public),
+                                    Port { typ, public, .. } => format!(" - {}({})\n", public, typ),
+                                })
                                 .collect::<String>(),
                         ),
                     ]);
