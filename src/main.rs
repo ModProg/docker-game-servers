@@ -1,4 +1,4 @@
-#![feature(iter_intersperse, never_type)]
+#![feature(iter_intersperse, never_type, map_into_keys_values)]
 use anyhow::{anyhow, Error, Result};
 use bollard::container::ListContainersOptions;
 use bollard::models::ContainerSummaryInner;
@@ -38,6 +38,7 @@ impl Game {
 
 #[derive(Debug)]
 struct Server {
+    name: String,
     game: &'static Game,
     tags: Vec<String>,
 }
@@ -50,8 +51,10 @@ impl TryFrom<ContainerSummaryInner> for Server {
             ContainerSummaryInner {
                 image: Some(image),
                 names: Some(names),
+                labels: Some(labels),
                 ..
             } if names.len() == 1 => Ok(Self {
+                name: names[0].clone(),
                 game: if let Some(game) = Game::find_by_image(&image) {
                     game
                 } else {
@@ -60,7 +63,16 @@ impl TryFrom<ContainerSummaryInner> for Server {
                         image
                     ));
                 },
-                tags: vec![],
+                tags: labels
+                    .into_keys()
+                    .filter_map(|label| {
+                        if label.starts_with("dgs-") {
+                            Some((&label[4..]).into())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect(),
             }),
             _ => Err(anyhow!("Container is not compatible with dgs")),
         }
