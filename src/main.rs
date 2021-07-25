@@ -1,7 +1,9 @@
 #![feature(iter_intersperse, never_type, map_into_keys_values)]
 use anyhow::{anyhow, Error, Result};
 use bollard::container::ListContainersOptions;
-use bollard::models::{self, ContainerSummaryInner, PortTypeEnum};
+use bollard::models::{
+    self, ContainerState, ContainerStateStatusEnum, ContainerSummaryInner, PortTypeEnum,
+};
 use bollard::{ClientVersion, Docker};
 use clap::Clap;
 use comfy_table::presets::UTF8_FULL;
@@ -11,6 +13,7 @@ use core::fmt::{self, Debug};
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::default::Default;
+use std::str::FromStr;
 
 use crate::cli::{Opt, ServerFilter};
 
@@ -70,24 +73,48 @@ impl TryFrom<models::Port> for Port {
     }
 }
 
-struct Server {
+enum Status {
+    Running,
+    Created,
+    Exited,
+    Unknown(String),
+}
+
+impl FromStr for Status {
+    type Err = !;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        use Status::*;
+        let value = s.to_lowercase();
+        Ok(match 1 {
+            _ if "running".contains(&value) => Running,
+            _ if "created".contains(&value) => Created,
+            _ if "exited".contains(&value) => Exited,
+            _ => Unknown(value),
+        })
+    }
+}
+
+struct BasicServerInfo {
     name: String,
     game: &'static Game,
     tags: Vec<String>,
     ports: Vec<Port>,
+    status: ContainerStateStatusEnum,
 }
 
-impl fmt::Debug for Server {
+impl fmt::Debug for BasicServerInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let Self {
             name,
             game: Game { name: game, .. },
             tags,
             ports,
+            status,
         } = self;
         write!(
             f,
-            "Server {{name: {:?}, game: {:?}, tags: {:?}, ports: {:?}}}",
+            "Server {{name: {:?}, game: {:?}, tags: {:?}, ports: {:?}, status: {:?}}}",
             name,
             game,
             tags,
@@ -101,12 +128,13 @@ impl fmt::Debug for Server {
                          ..
                      }| format!("{}:{}->{}", typ, public, private)
                 )
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>(),
+            status
         )
     }
 }
 
-impl TryFrom<ContainerSummaryInner> for Server {
+impl TryFrom<ContainerSummaryInner> for BasicServerInfo {
     type Error = Error;
 
     fn try_from(container: ContainerSummaryInner) -> Result<Self, Self::Error> {
@@ -116,8 +144,11 @@ impl TryFrom<ContainerSummaryInner> for Server {
                 names: Some(names),
                 labels: Some(labels),
                 ports: Some(ports),
+                state: Some(state),
                 ..
             } if names.len() == 1 => Ok(Self {
+                status: ContainerStateStatusEnum::from_str(&state)
+                    .map_err(|e| anyhow!("Invalid container state: `{:?}`", e))?,
                 name: names[0].clone(),
                 game: if let Some(game) = Game::find_by_image(&image) {
                     game
@@ -272,7 +303,7 @@ async fn main() {
                 .apply_modifier(UTF8_SOLID_INNER_BORDERS)
                 .set_content_arrangement(ContentArrangement::Dynamic)
                 .set_header(
-                    vec!["Name", "Game", "Tags", "Ports"]
+                    vec!["Name", "Game", "Tags", "Ports", "Status"]
                         .iter()
                         .map(|s| Cell::new(s).set_alignment(CellAlignment::Center)),
                 );
@@ -282,14 +313,15 @@ async fn main() {
             }
 
             for server in servers {
-                if let Ok(Server {
+                if let Ok(BasicServerInfo {
                     name,
                     game: Game {
                         name: game_name, ..
                     },
                     tags,
                     ports,
-                }) = Server::try_from(server.clone())
+                    status,
+                }) = BasicServerInfo::try_from(server.clone())
                 {
                     table.add_row(vec![
                         Cell::new(name),
@@ -312,6 +344,7 @@ async fn main() {
                                 })
                                 .collect::<String>(),
                         ),
+                        Cell::new(format!("{:?}", status)),
                     ]);
                 }
             }
