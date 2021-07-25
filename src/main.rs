@@ -2,7 +2,7 @@
 use anyhow::{anyhow, Error, Result};
 use bollard::container::ListContainersOptions;
 use bollard::models::{
-    self, ContainerState, ContainerStateStatusEnum, ContainerSummaryInner, PortTypeEnum,
+    self, ContainerStateStatusEnum, ContainerSummaryInner, PortTypeEnum,
 };
 use bollard::{ClientVersion, Docker};
 use clap::Clap;
