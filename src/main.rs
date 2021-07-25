@@ -20,8 +20,11 @@ mod macros;
 mod cli;
 
 const UTF8_SOLID_INNER_BORDERS: &str = "        │─         ";
-const DOCKER_ERROR: i32 = 1;
-const USER_ERROR: i32 = 2;
+
+enum Errors {
+    Docker = 1,
+    Usage = 2,
+}
 
 #[derive(Debug, Clone)]
 struct Game {
@@ -208,7 +211,11 @@ async fn main() {
     .expect("Setup Docker connection (cannot error currently)");
     // Try connection to fail with a reasonable error:
     if let Err(error) = docker.ping().await {
-        exit!(DOCKER_ERROR, "Unable to connect with Docker: \n {}", error);
+        exit!(
+            Errors::Docker,
+            "Unable to connect with Docker: \n {}",
+            error
+        );
     };
 
     match opt.cmd {
@@ -231,12 +238,12 @@ async fn main() {
                     match games.len() {
                         1 => Some(games[0]),
                         0 => exit!(
-                            USER_ERROR,
+                            Errors::Usage,
                             "Unable to find a matching game for: `{}`",
                             &*game_name
                         ),
                         _ => exit!(
-                            USER_ERROR,
+                            Errors::Usage,
                             "Unable to find unique matching game for: `{}`, found: {}",
                             &*game_name,
                             games

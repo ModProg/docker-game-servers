@@ -5,7 +5,7 @@ macro_rules! exit {
     };
     ($ec:expr, $($message:expr), +) => {
         {eprintln!($($message), +);
-        std::process::exit($ec);}
+        std::process::exit($ec as i32);}
     };
 }
 
