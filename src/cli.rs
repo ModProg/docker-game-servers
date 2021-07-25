@@ -32,7 +32,8 @@ pub struct ServerFilter {
     pub game: Option<LowerCaseString>,
     /// Only servers with these tags (case is ignored) will be returned.
     ///
-    /// Usage: `-t first_tag -t second_tag`
+    /// Usage: `-t first_tag -t second_tag`. 
+    /// This would return all servers that have both `first_tag` and `second_tag`.
     #[clap(short, long = "tag")]
     pub tags: Vec<LowerCaseString>,
 }
