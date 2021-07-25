@@ -30,7 +30,9 @@ pub struct ServerFilter {
     /// Only servers with a matching game name will be returned.
     #[clap(short, long)]
     pub game: Option<LowerCaseString>,
-    /// Only servers with this tag (case is ignored) will be returned.
+    /// Only servers with these tags (case is ignored) will be returned.
+    ///
+    /// Usage: `-t first_tag -t second_tag`
     #[clap(short, long = "tag")]
     pub tags: Vec<LowerCaseString>,
 }
