@@ -1,9 +1,7 @@
 #![feature(iter_intersperse, never_type, map_into_keys_values)]
 use anyhow::{anyhow, Error, Result};
 use bollard::container::ListContainersOptions;
-use bollard::models::{
-    self, ContainerStateStatusEnum, ContainerSummaryInner, PortTypeEnum,
-};
+use bollard::models::{self, ContainerStateStatusEnum, ContainerSummaryInner, PortTypeEnum};
 use bollard::{ClientVersion, Docker};
 use clap::Clap;
 use comfy_table::presets::UTF8_FULL;
@@ -250,7 +248,12 @@ async fn main() {
     };
 
     match opt.cmd {
-        cli::Command::Servers(ServerFilter { name, game, tags }) => {
+        cli::Command::Servers(ServerFilter {
+            name,
+            game,
+            tags,
+            state: status,
+        }) => {
             let mut filters = HashMap::new();
             // TODO add a default label to only find those created by dgs
             if tags.len() > 0 {
@@ -289,6 +292,10 @@ async fn main() {
                     filters.insert("ancestor".into(), vec![game.image.into()]);
                 }
             };
+            if let Some(status) = status {
+                filters.insert("status".into(), vec![status.to_string().to_lowercase()]);
+            }
+            let search_name = name.map(|s| s.to_lowercase()).unwrap_or("".into());
             let servers = &docker
                 .list_containers(Some(ListContainersOptions::<String> {
                     all: true,
@@ -323,29 +330,33 @@ async fn main() {
                     status,
                 }) = BasicServerInfo::try_from(server.clone())
                 {
-                    table.add_row(vec![
-                        Cell::new(name),
-                        Cell::new(game_name),
-                        Cell::new(
-                            tags.iter()
-                                .map(|tag| format!(" - {}\n", tag))
-                                .collect::<String>(),
-                        ),
-                        Cell::new(
-                            ports
-                                .iter()
-                                .map(|port| match port {
-                                    Port {
-                                        typ: PortTypeEnum::TCP,
-                                        public,
-                                        ..
-                                    } => format!(" - {}\n", public),
-                                    Port { typ, public, .. } => format!(" - {}({})\n", public, typ),
-                                })
-                                .collect::<String>(),
-                        ),
-                        Cell::new(format!("{:?}", status)),
-                    ]);
+                    if name.to_lowercase().contains(&search_name) {
+                        table.add_row(vec![
+                            Cell::new(name),
+                            Cell::new(game_name),
+                            Cell::new(
+                                tags.iter()
+                                    .map(|tag| format!(" - {}\n", tag))
+                                    .collect::<String>(),
+                            ),
+                            Cell::new(
+                                ports
+                                    .iter()
+                                    .map(|port| match port {
+                                        Port {
+                                            typ: PortTypeEnum::TCP,
+                                            public,
+                                            ..
+                                        } => format!(" - {}\n", public),
+                                        Port { typ, public, .. } => {
+                                            format!(" - {}({})\n", public, typ)
+                                        }
+                                    })
+                                    .collect::<String>(),
+                            ),
+                            Cell::new(format!("{:?}", status)),
+                        ]);
+                    }
                 }
             }
             println!("{}", table);
