@@ -1,8 +1,9 @@
 use std::ops::Deref;
 use std::str::FromStr;
 
-use bollard::models::ContainerStateStatusEnum;
 use clap::Clap;
+
+use crate::server::{ServerCmd, ServerFilter};
 
 #[derive(Clap)]
 #[clap(version = "0.1", author = "ModProg <dev@modprog.de>")]
@@ -19,29 +20,16 @@ pub struct Opt {
 pub enum Command {
     /// Lists availible images
     Games,
-    /// List running servers
+    /// List servers
     Servers(ServerFilter),
+    /// Manage servers
+    Server {
+        #[clap(subcommand)]
+        cmd: Option<ServerCmd>,
+    },
 }
 
-#[derive(Clap)]
-pub struct ServerFilter {
-    /// Only servers matching the name will be returned.
-    #[clap(short, long)]
-    pub name: Option<String>,
-    /// Only servers with a matching game name will be returned.
-    #[clap(short, long)]
-    pub game: Option<LowerCaseString>,
-    /// Only servers with these tags (case is ignored) will be returned.
-    ///
-    /// Usage: `-t first_tag -t second_tag`.
-    /// This would return all servers that have both `first_tag` and `second_tag`.
-    #[clap(short, long = "tag")]
-    pub tags: Vec<LowerCaseString>,
-    /// Only servers with this state are returned
-    #[clap(short, long)]
-    pub state: Option<ContainerStateStatusEnum>,
-}
-
+#[derive(Clone)]
 pub struct LowerCaseString(String);
 
 impl FromStr for LowerCaseString {
@@ -75,5 +63,16 @@ impl Deref for LowerCaseString {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl PartialEq<String> for LowerCaseString {
+    fn eq(&self, other: &String) -> bool {
+        *other == self.0
+    }
+}
+impl PartialEq<String> for &LowerCaseString {
+    fn eq(&self, other: &String) -> bool {
+        *other == self.0
     }
 }

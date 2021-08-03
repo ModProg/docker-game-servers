@@ -1,36 +1,40 @@
 #![feature(iter_intersperse, never_type, map_into_keys_values)]
 use anyhow::{anyhow, Error, Result};
-use bollard::container::ListContainersOptions;
 use bollard::models::{self, ContainerStateStatusEnum, ContainerSummaryInner, PortTypeEnum};
 use bollard::{ClientVersion, Docker};
 use clap::Clap;
-use comfy_table::presets::UTF8_FULL;
-use comfy_table::*;
 
 use core::fmt::{self, Debug};
-use std::collections::HashMap;
-use std::convert::TryFrom;
-use std::default::Default;
+use std::convert::{TryFrom, TryInto};
+use std::process::exit;
 use std::str::FromStr;
 
-use crate::cli::{Opt, ServerFilter};
+use crate::cli::Opt;
+use crate::server::{ls, tmp};
+
+use self::cli::LowerCaseString;
+use self::server::ServerFilter;
 
 #[macro_use]
 mod macros;
 
 mod cli;
+mod server;
 
 const UTF8_SOLID_INNER_BORDERS: &str = "        │─         ";
 
-enum Errors {
-    Docker = 1,
-    Usage = 2,
+#[derive(Debug, Clone)]
+pub enum PortConfiguration {
+    NonConfigurable(&'static [(u16, PortTypeEnum)]),
+    SinglePort(u16, PortTypeEnum),
 }
 
 #[derive(Debug, Clone)]
 struct Game {
     name: &'static str,
     image: &'static str,
+    ports: PortConfiguration,
+    envs: &'static [&'static str],
 }
 
 impl Game {
@@ -42,12 +46,25 @@ impl Game {
         };
         GAMES.iter().find(|Game { image, .. }| *image == image_name)
     }
+    fn find_by_name(game_name: &LowerCaseString) -> Option<&'static Self> {
+        GAMES
+            .iter()
+            .find(|Game { name, .. }| game_name == name.to_lowercase())
+    }
+}
+
+impl FromStr for &Game {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Game::find_by_name(&s.into()).ok_or(anyhow!("Unable to find a game matching `{}`", s))
+    }
 }
 
 #[derive(Debug)]
 struct Port {
-    public: i64,
-    private: i64,
+    public: u16,
+    private: u16,
     typ: PortTypeEnum,
 }
 
@@ -62,34 +79,12 @@ impl TryFrom<models::Port> for Port {
                 typ: Some(typ),
                 ..
             } => Ok(Self {
-                public: public_port,
-                private: private_port,
+                public: public_port.try_into()?,
+                private: private_port.try_into()?,
                 typ,
             }),
             port => Err(anyhow!("Incompatible port config: {:?}", port)),
         }
-    }
-}
-
-enum Status {
-    Running,
-    Created,
-    Exited,
-    Unknown(String),
-}
-
-impl FromStr for Status {
-    type Err = !;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        use Status::*;
-        let value = s.to_lowercase();
-        Ok(match 1 {
-            _ if "running".contains(&value) => Running,
-            _ if "created".contains(&value) => Created,
-            _ if "exited".contains(&value) => Exited,
-            _ => Unknown(value),
-        })
     }
 }
 
@@ -180,14 +175,25 @@ const GAMES: &[Game] = &[
     Game {
         name: "minecraft",
         image: "docker.io/itzg/minecraft-server",
+        ports: PortConfiguration::SinglePort(25565, PortTypeEnum::TCP),
+        envs: &["EULA=TRUE"],
     },
     Game {
         name: "factorio",
         image: "docker.io/factoriotools/factorio",
+        ports: PortConfiguration::SinglePort(34197, PortTypeEnum::UDP),
+        envs: &[],
     },
+    // TODO investigate how to handle the Ports here
     Game {
         name: "valheim",
         image: "docker.io/lloesche/valheim-server",
+        ports: PortConfiguration::NonConfigurable(&[
+            (2456, PortTypeEnum::UDP),
+            (2457, PortTypeEnum::UDP),
+            (2458, PortTypeEnum::UDP),
+        ]),
+        envs: &[],
     },
 ];
 const TIME_OUT: u64 = 5;
@@ -206,7 +212,7 @@ async fn main() {
                     .intersperse("\n")
                     .collect::<String>()
             );
-            exit!()
+            return;
         }
         _ => (),
     }
@@ -240,127 +246,29 @@ async fn main() {
     .expect("Setup Docker connection (cannot error currently)");
     // Try connection to fail with a reasonable error:
     if let Err(error) = docker.ping().await {
-        exit!(
-            Errors::Docker,
-            "Unable to connect with Docker: \n {}",
-            error
-        );
+        eprintln!("Unable to connect with Docker: \n {}", error);
+        exit(1);
     };
 
-    match opt.cmd {
-        cli::Command::Servers(ServerFilter {
-            name,
-            game,
-            tags,
-            state: status,
-        }) => {
-            let mut filters = HashMap::new();
-            // TODO add a default label to only find those created by dgs
-            if tags.len() > 0 {
-                filters.insert(
-                    "label".to_owned(),
-                    tags.iter().map(|tag| "dgs-".to_owned() + tag).collect(),
-                );
-            }
-            if let Some(game_name) = game {
-                let game = GAMES.iter().find(|game| game.name == &*game_name);
-                let game = game.or_else(|| {
-                    let games: Vec<_> = GAMES
-                        .iter()
-                        .filter(|game| game.name.contains(&*game_name))
-                        .collect();
-                    match games.len() {
-                        1 => Some(games[0]),
-                        0 => exit!(
-                            Errors::Usage,
-                            "Unable to find a matching game for: `{}`",
-                            &*game_name
-                        ),
-                        _ => exit!(
-                            Errors::Usage,
-                            "Unable to find unique matching game for: `{}`, found: {}",
-                            &*game_name,
-                            games
-                                .iter()
-                                .map(|game| "`".to_owned() + game.name + "`")
-                                .intersperse(", ".to_owned())
-                                .collect::<String>()
-                        ),
-                    }
-                });
-                if let Some(game) = game {
-                    filters.insert("ancestor".into(), vec![game.image.into()]);
-                }
-            };
-            if let Some(status) = status {
-                filters.insert("status".into(), vec![status.to_string().to_lowercase()]);
-            }
-            let search_name = name.map(|s| s.to_lowercase()).unwrap_or("".into());
-            let servers = &docker
-                .list_containers(Some(ListContainersOptions::<String> {
-                    all: true,
-                    filters,
-                    ..Default::default()
-                }))
-                .await
-                .unwrap();
-            let mut table = Table::new();
-            table
-                .load_preset(UTF8_FULL)
-                .apply_modifier(UTF8_SOLID_INNER_BORDERS)
-                .set_content_arrangement(ContentArrangement::Dynamic)
-                .set_header(
-                    vec!["Name", "Game", "Tags", "Ports", "Status"]
-                        .iter()
-                        .map(|s| Cell::new(s).set_alignment(CellAlignment::Center)),
-                );
-
-            if !table.is_tty() {
-                table.set_table_width(60);
-            }
-
-            for server in servers {
-                if let Ok(BasicServerInfo {
-                    name,
-                    game: Game {
-                        name: game_name, ..
-                    },
-                    tags,
-                    ports,
-                    status,
-                }) = BasicServerInfo::try_from(server.clone())
-                {
-                    if name.to_lowercase().contains(&search_name) {
-                        table.add_row(vec![
-                            Cell::new(name),
-                            Cell::new(game_name),
-                            Cell::new(
-                                tags.iter()
-                                    .map(|tag| format!(" - {}\n", tag))
-                                    .collect::<String>(),
-                            ),
-                            Cell::new(
-                                ports
-                                    .iter()
-                                    .map(|port| match port {
-                                        Port {
-                                            typ: PortTypeEnum::TCP,
-                                            public,
-                                            ..
-                                        } => format!(" - {}\n", public),
-                                        Port { typ, public, .. } => {
-                                            format!(" - {}({})\n", public, typ)
-                                        }
-                                    })
-                                    .collect::<String>(),
-                            ),
-                            Cell::new(format!("{:?}", status)),
-                        ]);
-                    }
-                }
-            }
-            println!("{}", table);
-        }
+    if let Err(e) = match opt.cmd {
         cli::Command::Games => unreachable!("Already handled in pre-docker match."),
+        cli::Command::Server { cmd: None } => {
+            ls(
+                ServerFilter {
+                    state: Some(ContainerStateStatusEnum::RUNNING),
+                    ..Default::default()
+                },
+                &docker,
+            )
+            .await
+        }
+        cli::Command::Server { cmd: Some(cmd) } => match cmd {
+            server::ServerCmd::Tmp(config) => tmp(&docker, config).await,
+            server::ServerCmd::Ls(filter) => ls(filter, &docker).await,
+        },
+        cli::Command::Servers(server) => ls(server, &docker).await,
+    } {
+        eprintln!("It died: {}", e);
+        exit(1);
     }
 }
