@@ -7,7 +7,7 @@ use cli::Command;
 
 use core::fmt::{self, Debug};
 use std::convert::{TryFrom, TryInto};
-use std::fs::File;
+use std::fs::{create_dir_all, File};
 use std::io::Write;
 use std::process::exit;
 use std::str::FromStr;
@@ -227,7 +227,7 @@ const GAMES: &[Game] = &[
 const TIME_OUT: u64 = 5;
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     let opt = Opt::parse();
     // Handle non Docker dependent commands first
     match opt.cmd {
@@ -240,14 +240,14 @@ async fn main() {
                     .intersperse("\n")
                     .collect::<String>()
             );
-            return;
+            return Ok(());
         }
         Command::Completions {
             shell,
             print,
             ref filename,
+            system,
         } => {
-            use clap_generate::generators;
             let mut app = {
                 use clap::IntoApp;
                 Opt::into_app()
@@ -258,43 +258,33 @@ async fn main() {
                 .to_string();
             let mut buffer: Box<dyn Write> = if print {
                 Box::new(std::io::stdout())
-            } else if let Some(filename) = filename {
-                let filename = if filename.is_file() {
-                    filename.with_file_name(
-                        shell.file_name(
-                            &filename
-                                .file_name()
-                                .expect("The passed Filename should be a valid string")
-                                .to_string_lossy(),
-                        ),
-                    )
+            } else {
+                let filename = if let Some(filename) = filename {
+                    if filename.is_dir() {
+                        filename.join(shell.file_name(&name))
+                    } else {
+                        filename.with_file_name(
+                            shell.file_name(
+                                &filename
+                                    .file_name()
+                                    .expect("The passed Filename should be a valid string")
+                                    .to_string_lossy(),
+                            ),
+                        )
+                    }
                 } else {
-                    filename.join(shell.file_name(&name))
+                    let path = if system {
+                        shell.system_path()
+                    } else {
+                        shell.user_path()
+                    };
+                    create_dir_all(&path)?;
+                    path.join(shell.file_name(&name))
                 };
                 Box::new(File::create(filename).unwrap())
-            } else {
-                todo!("Store in default location")
             };
-            match shell {
-                cli::ShellType::Bash => {
-                    clap_generate::generate::<generators::Bash, _>(&mut app, name, &mut buffer)
-                }
-                cli::ShellType::Elvish => {
-                    clap_generate::generate::<generators::Elvish, _>(&mut app, name, &mut buffer)
-                }
-                cli::ShellType::Fish => {
-                    clap_generate::generate::<generators::Fish, _>(&mut app, name, &mut buffer)
-                }
-                cli::ShellType::PowerShell => clap_generate::generate::<generators::PowerShell, _>(
-                    &mut app,
-                    name,
-                    &mut buffer,
-                ),
-                cli::ShellType::Zsh => {
-                    clap_generate::generate::<generators::Zsh, _>(&mut app, name, &mut buffer)
-                }
-            }
-            return;
+            shell.generate_completions(&mut app, &name, &mut buffer);
+            return Ok(());
         }
         _ => {}
     }
@@ -354,5 +344,6 @@ async fn main() {
     } {
         eprintln!("It died: {}", e);
         exit(1);
-    }
+    };
+    Ok(())
 }
