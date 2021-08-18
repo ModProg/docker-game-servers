@@ -99,6 +99,11 @@ async fn create(docker: &Docker, game: &'static Game, options: GameOptions) -> R
             port_bindings: Some(pb),
             ..Default::default()
         }),
+        labels: {
+            let mut labels = HashMap::new();
+            labels.insert("dgs", "dgs");
+            Some(labels)
+        },
 
         ..Default::default()
     };

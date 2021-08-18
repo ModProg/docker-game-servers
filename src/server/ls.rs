@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::convert::TryFrom;
+use std::iter;
 
 use anyhow::{bail, Result};
 use bollard::container::ListContainersOptions;
@@ -39,13 +40,18 @@ pub async fn ls(
     docker: &Docker,
 ) -> Result<()> {
     let mut filters = HashMap::new();
-    // TODO add a default label to only find those created by dgs
-    if tags.is_empty() {
-        filters.insert(
-            "label".to_owned(),
-            tags.iter().map(|tag| "dgs-".to_owned() + tag).collect(),
-        );
-    }
+    filters.insert(
+        "label".to_owned(),
+        if tags.is_empty() {
+            tags.iter()
+                .map(|tag| "dgs-".to_owned() + tag)
+                // The default Tag every server has
+                .chain(iter::once("dgs".into()))
+                .collect()
+        } else {
+            vec!["dgs".into()]
+        },
+    );
     if let Some(game_name) = game {
         let game = GAMES.iter().find(|game| game.name == &*game_name);
         let game = game.ok_or_else(|| {
