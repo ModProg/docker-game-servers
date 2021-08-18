@@ -1,4 +1,4 @@
-#![feature(iter_intersperse, never_type, map_into_keys_values, in_band_lifetimes)]
+#![feature(iter_intersperse, never_type, in_band_lifetimes)]
 use anyhow::{anyhow, Error, Result};
 use bollard::models::{self, ContainerStateStatusEnum, ContainerSummaryInner, PortTypeEnum};
 use bollard::{ClientVersion, Docker};
