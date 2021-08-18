@@ -18,9 +18,6 @@ use crate::server::{ls, tmp};
 use self::cli::LowerCaseString;
 use self::server::ServerFilter;
 
-#[macro_use]
-mod macros;
-
 mod cli;
 mod server;
 
