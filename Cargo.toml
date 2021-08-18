@@ -13,7 +13,7 @@ path = "src/main.rs"
 bollard = "0.11.0"
 futures-util = "0.3.15"
 tokio = { version = "1.8.0", features = ["full"] }
-clap = {version = "3.0.0-beta.2", features = ["wrap_help"]}
+clap = {git = "https://github.com/clap-rs/clap", features = ["wrap_help"]}
 dirs = "3.0.2"
 anyhow = "1.0.42"
 comfy-table = "4.0.1"
@@ -21,4 +21,4 @@ termion = "1.5.6"
 derive_builder = "0.10.2"
 chrono = "0.4.19"
 portpicker = "0.1.1"
-clap_generate = "3.0.0-beta.2"
+clap_generate = {git = "https://github.com/clap-rs/clap"}
