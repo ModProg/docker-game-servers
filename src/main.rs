@@ -2,13 +2,15 @@
 use anyhow::{anyhow, Error, Result};
 use bollard::models::{self, ContainerStateStatusEnum, ContainerSummaryInner, PortTypeEnum};
 use bollard::{ClientVersion, Docker};
-use clap::Clap;
+use clap::{ArgEnum, Clap};
 use cli::Command;
 
 use core::fmt::{self, Debug};
 use std::convert::{TryFrom, TryInto};
+use std::fmt::Display;
 use std::fs::{create_dir_all, File};
 use std::io::Write;
+use std::ops::Deref;
 use std::process::exit;
 use std::str::FromStr;
 
@@ -48,7 +50,7 @@ pub enum VersionLs {
 
 #[derive(Debug, Clone)]
 struct Game {
-    name: &'static str,
+    name: GameName,
     image: &'static str,
     ports: PortConfiguration,
     envs: &'static [&'static str],
@@ -184,9 +186,35 @@ impl TryFrom<ContainerSummaryInner> for BasicServerInfo {
     }
 }
 
+#[derive(Clone, Copy, Debug, ArgEnum, PartialEq)]
+pub enum GameName {
+    Minecraft,
+    Factorio,
+    Valheim,
+}
+
+impl Display for GameName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", *self)
+    }
+}
+
+impl Deref for GameName {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        use GameName::*;
+        match self {
+            Minecraft => "minecraft",
+            Factorio => "factorio",
+            Valheim => "valheim",
+        }
+    }
+}
+
 const GAMES: &[Game] = &[
     Game {
-        name: "minecraft",
+        name: GameName::Minecraft,
         image: "docker.io/itzg/minecraft-server",
         ports: PortConfiguration::SinglePort(25565, PortTypeEnum::TCP),
         envs: &["EULA=TRUE"],
@@ -196,7 +224,7 @@ const GAMES: &[Game] = &[
         }
     },
     Game {
-        name: "factorio",
+        name: GameName::Factorio,
         image: "docker.io/factoriotools/factorio",
         ports: PortConfiguration::SinglePort(34197, PortTypeEnum::UDP),
         envs: &[],
@@ -207,7 +235,7 @@ const GAMES: &[Game] = &[
     },
     // TODO investigate how to handle the Ports here
     Game {
-        name: "valheim",
+        name: GameName::Valheim,
         image: "docker.io/lloesche/valheim-server",
         ports: PortConfiguration::NonConfigurable(&[
             (2456, PortTypeEnum::UDP),
@@ -233,7 +261,7 @@ async fn main() -> Result<()> {
                 "Availible Games:\n{}",
                 GAMES
                     .iter()
-                    .map(|v| v.name)
+                    .map(|v| &*v.name)
                     .intersperse("\n")
                     .collect::<String>()
             );

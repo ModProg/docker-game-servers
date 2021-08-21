@@ -12,8 +12,10 @@ path = "src/main.rs"
 anyhow = "1.0.43"
 bollard = "0.11.0"
 chrono = "0.4.19"
-clap = { git = "https://github.com/clap-rs/clap", features = ["wrap_help"] }
-clap_generate = {git = "https://github.com/clap-rs/clap"}
+clap = { git = "https://github.com/modprog/clap", branch = "mychanges", features = ["wrap_help"] }
+clap_generate = { git = "https://github.com/modprog/clap", branch = "mychanges" }
+# clap = { path = "/home/modprog/Dokumente/Development/FOSS/Rust/Libs/clap", features = ["wrap_help"] }
+# clap_generate = {path = "/home/modprog/Dokumente/Development/FOSS/Rust/Libs/clap/clap_generate"}
 comfy-table = "4.1.1"
 derive_builder = "0.10.2"
 dirs = "3.0.2"

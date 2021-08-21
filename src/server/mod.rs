@@ -1,4 +1,5 @@
 pub mod ls;
+mod tmp;
 
 use std::collections::HashMap;
 
@@ -11,6 +12,7 @@ use clap::Clap;
 
 use futures_util::TryStreamExt;
 pub use ls::{ls, ServerFilter};
+pub use tmp::{tmp, Tmp, GameOptions};
 use portpicker::pick_unused_port;
 
 use crate::{Game, VersionConfiguration};
@@ -22,42 +24,6 @@ pub enum ServerCmd {
     /// This wont have persistant storage and stop when exited (e.g. with <^C>)
     Tmp(Tmp),
     Ls(ServerFilter),
-}
-
-#[derive(Clap)]
-pub struct Tmp {
-    game: &'static Game,
-    #[clap(flatten)]
-    options: GameOptions,
-}
-
-#[derive(Clap)]
-pub struct GameOptions {
-    #[clap(long, short)]
-    version: Option<String>,
-}
-
-pub async fn tmp(docker: &Docker, Tmp { game, options }: Tmp) -> Result<()> {
-    pull(
-        docker,
-        game.image,
-        if game.version.config == VersionConfiguration::Tag {
-            options.version.as_deref()
-        } else {
-            None
-        },
-    )
-    .await?;
-    let container_id = create(docker, game, options).await?;
-    start(docker, &container_id).await?;
-
-    pause();
-
-    // TODO option to attach to console
-    stop(docker, &container_id).await?;
-    rm(docker, &container_id).await?;
-
-    Ok(())
 }
 
 async fn create(docker: &Docker, game: &'static Game, options: GameOptions) -> Result<String> {
@@ -136,6 +102,7 @@ async fn stop(docker: &Docker, container_id: &str) -> Result<()> {
 async fn rm(docker: &Docker, container_id: &str) -> Result<()> {
     Ok(docker.remove_container(container_id, None).await?)
 }
+
 fn pause() {
     use std::io::{stdin, stdout, Write};
     use termion::input::TermRead;

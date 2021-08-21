@@ -11,15 +11,15 @@ use comfy_table::presets::UTF8_FULL;
 use comfy_table::{Cell, CellAlignment, ContentArrangement, Table};
 
 use crate::cli::LowerCaseString;
-use crate::{BasicServerInfo, Game, Port, GAMES, UTF8_SOLID_INNER_BORDERS};
+use crate::{BasicServerInfo, GAMES, Game, GameName, Port, UTF8_SOLID_INNER_BORDERS};
 #[derive(Clap, Default)]
 pub struct ServerFilter {
     /// Only servers matching the name will be returned.
     #[clap(short, long)]
     pub name: Option<String>,
     /// Only servers with a matching game name will be returned.
-    #[clap(short, long)]
-    pub game: Option<LowerCaseString>,
+    #[clap(short, long, arg_enum)]
+    pub game: Option<GameName>,
     /// Only servers with these tags (case is ignored) will be returned.
     ///
     /// Usage: `-t first_tag -t second_tag`.
@@ -53,7 +53,7 @@ pub async fn ls(
         },
     );
     if let Some(game_name) = game {
-        let game = GAMES.iter().find(|game| game.name == &*game_name);
+        let game = GAMES.iter().find(|game| game.name == game_name);
         let game = game.ok_or_else(|| {
             let games: Vec<_> = GAMES
                 .iter()
@@ -68,7 +68,7 @@ pub async fn ls(
                     &*game_name,
                     games
                         .iter()
-                        .map(|game| "`".to_owned() + game.name + "`")
+                        .map(|game| "`".to_owned() + &game.name + "`")
                         .intersperse(", ".to_owned())
                         .collect::<String>()
                 ),

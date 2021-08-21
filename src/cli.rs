@@ -3,8 +3,7 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::str::FromStr;
 
-use anyhow::Error;
-use clap::{App, Clap};
+use clap::{App, ArgEnum, Clap};
 
 use crate::server::{ServerCmd, ServerFilter};
 
@@ -21,13 +20,14 @@ pub struct Opt {
 
 #[derive(Clap)]
 pub enum Command {
-    /// Lists availible images
+    /// Lists available images
     Games,
     /// Output shell completions
     Completions {
         /// The shell to generate completions for
         ///
         /// e.g. fish/zsh/powershell
+        #[clap(arg_enum)]
         shell: ShellType,
         /// Prints completions to console
         #[clap(short, long, conflicts_with = "filename")]
@@ -47,7 +47,7 @@ pub enum Command {
     },
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, ArgEnum)]
 pub enum ShellType {
     Bash,
     Elvish,
@@ -109,13 +109,8 @@ impl ShellType {
             ShellType::Elvish => generate::<generators::Elvish, _>(app, name, buffer),
             ShellType::Fish => {
                 generate::<generators::Fish, _>(app, name, buffer);
-                // Sub completions for the `completions` and `help` command
+                // Sub completions for the `help` command
                 // because clap cannot do this currently
-                let shells = "shells bash fish zsh powershell";
-                writeln!(buffer,
-                         r#"complete -c dgs -n "__fish_seen_subcommand_from completions; and not __fish_seen_subcommand_from {}" -f -a "{}" -r"#,
-                         shells, shells)
-                    .expect("We should be able to add a line at the end of the completions file.");
                 let commands = "completions games server servers";
                 writeln!(buffer,
                          r#"complete -c dgs -n "__fish_seen_subcommand_from help; and not __fish_seen_subcommand_from {}" -f -a "{}" -r"#,
@@ -125,22 +120,6 @@ impl ShellType {
             ShellType::PowerShell => generate::<generators::PowerShell, _>(app, name, buffer),
             ShellType::Zsh => generate::<generators::Zsh, _>(app, name, buffer),
         }
-    }
-}
-
-impl FromStr for ShellType {
-    type Err = Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        use ShellType::*;
-        Ok(match s.to_ascii_lowercase().as_str() {
-            "bash" => Bash,
-            "elvish" => Elvish,
-            "fish" => Fish,
-            "powershell" => PowerShell,
-            "zsh" => Zsh,
-            &_ => anyhow::bail!("`{}` is not a supported shell", s),
-        })
     }
 }
 
